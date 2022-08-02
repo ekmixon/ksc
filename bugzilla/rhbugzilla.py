@@ -256,20 +256,21 @@ class RHBugzilla(Bugzilla):
         old = query.copy()
 
         if 'bug_id' in query:
-            if not isinstance(query['bug_id'], list):
-                query['id'] = query['bug_id'].split(',')
-            else:
-                query['id'] = query['bug_id']
+            query['id'] = (
+                query['bug_id']
+                if isinstance(query['bug_id'], list)
+                else query['bug_id'].split(',')
+            )
+
             del query['bug_id']
 
-        if 'component' in query:
-            if not isinstance(query['component'], list):
-                query['component'] = query['component'].split(',')
-
-        if 'include_fields' not in query and 'column_list' not in query:
-            return
+        if 'component' in query and not isinstance(query['component'], list):
+            query['component'] = query['component'].split(',')
 
         if 'include_fields' not in query:
+            if 'column_list' not in query:
+                return
+
             query['include_fields'] = []
             if 'column_list' in query:
                 query['include_fields'] = query['column_list']

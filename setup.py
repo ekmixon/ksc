@@ -5,10 +5,7 @@ from distutils.core import Command
 from unittest import TextTestRunner, TestLoader
 import os
 
-bugzilla = []
-for x in os.listdir('bugzilla/'):
-    bugzilla.append('bugzilla/%s' % x)
-
+bugzilla = [f'bugzilla/{x}' for x in os.listdir('bugzilla/')]
 setup(name='ksc',
       version='1.8',
       description="ksc tool",

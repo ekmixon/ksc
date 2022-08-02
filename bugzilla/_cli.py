@@ -85,11 +85,10 @@ def open_without_clobber(name, *args):
         try:
             fd = os.open(name, os.O_CREAT | os.O_EXCL, 0o666)
         except OSError as err:
-            if err.errno == os.errno.EEXIST:
-                name = "%s.%i" % (orig_name, count)
-                count += 1
-            else:
+            if err.errno != os.errno.EEXIST:
                 raise IOError(err.errno, err.strerror, err.filename)
+            name = "%s.%i" % (orig_name, count)
+            count += 1
     fobj = open(name, *args)
     if fd != fobj.fileno():
         os.close(fd)
@@ -101,8 +100,7 @@ def get_default_url():
     Grab a default URL from bugzillarc [DEFAULT] url=X
     """
     from bugzilla.base import _open_bugzillarc
-    cfg = _open_bugzillarc()
-    if cfg:
+    if cfg := _open_bugzillarc():
         cfgurl = cfg.defaults().get("url", None)
         if cfgurl is not None:
             log.debug("bugzillarc: found cli url=%s", cfgurl)
@@ -139,8 +137,12 @@ def _setup_root_parser():
     default_url = get_default_url()
 
     # General bugzilla connection options
-    p.add_argument('--bugzilla', default=default_url,
-            help="bugzilla XMLRPC URI. default: %s" % default_url)
+    p.add_argument(
+        '--bugzilla',
+        default=default_url,
+        help=f"bugzilla XMLRPC URI. default: {default_url}",
+    )
+
     p.add_argument("--nosslverify", dest="sslverify",
                  action="store_false", default=True,
                  help="Don't error on invalid bugzilla SSL certificate")
@@ -457,15 +459,13 @@ def _merge_field_opts(query, opt, parser):
             f, v = f.split('=', 1)
             query[f] = v
         except Exception:
-            parser.error("Invalid field argument provided: %s" % (f))
+            parser.error(f"Invalid field argument provided: {f}")
 
 
 def _do_query(bz, opt, parser):
     q = {}
 
-    # Parse preconstructed queries.
-    u = opt.from_url
-    if u:
+    if u := opt.from_url:
         q = bz.url_to_query(u)
 
     if opt.components_file:
@@ -473,7 +473,7 @@ def _do_query(bz, opt, parser):
         # This can be made more robust
         clist = []
         f = open(opt.components_file, 'r')
-        for line in f.readlines():
+        for line in f:
             line = line.rstrip("\n")
             clist.append(line)
         opt.component = clist
@@ -481,20 +481,20 @@ def _do_query(bz, opt, parser):
     if opt.status:
         val = opt.status
         stat = val
-        if val == 'ALL':
+        if stat == 'ALL':
             # leaving this out should return bugs of any status
             stat = None
-        elif val == 'DEV':
+        elif stat == 'DEV':
             # Alias for all development bug statuses
             stat = ['NEW', 'ASSIGNED', 'NEEDINFO', 'ON_DEV',
                 'MODIFIED', 'POST', 'REOPENED']
-        elif val == 'QE':
+        elif stat == 'QE':
             # Alias for all QE relevant bug statuses
             stat = ['ASSIGNED', 'ON_QA', 'FAILS_QA', 'PASSES_QA']
-        elif val == 'EOL':
+        elif stat == 'EOL':
             # Alias for EndOfLife bug statuses
             stat = ['VERIFIED', 'RELEASE_PENDING', 'CLOSED']
-        elif val == 'OPEN':
+        elif stat == 'OPEN':
             # non-Closed statuses
             stat = ['NEW', 'ASSIGNED', 'MODIFIED', 'ON_DEV', 'ON_QA',
                 'VERIFIED', 'RELEASE_PENDING', 'POST']
@@ -521,7 +521,7 @@ def _do_query(bz, opt, parser):
         include_fields = []
         for fieldname, rest in format_field_re.findall(opt.outputformat):
             if fieldname == "whiteboard" and rest:
-                fieldname = rest + "_" + fieldname
+                fieldname = f"{rest}_{fieldname}"
             elif fieldname == "flag":
                 fieldname = "flags"
             elif fieldname == "cve":
@@ -585,9 +585,7 @@ def _do_query(bz, opt, parser):
 
     if not q:
         parser.error("'query' command requires additional arguments")
-    if opt.test_return_result:
-        return q
-    return bz.query(q)
+    return q if opt.test_return_result else bz.query(q)
 
 
 def _do_info(bz, opt):
@@ -613,8 +611,9 @@ def _do_info(bz, opt):
             "components.default_assigned_to",
             "components.name",
         ]
-    if (opt.active_components and
-        any(["components" in i for i in include_fields])):
+    if opt.active_components and any(
+        "components" in i for i in include_fields
+    ):
         include_fields += ["components.is_active"]
 
     bz.refresh_products(names=productname and [productname] or None,
@@ -641,8 +640,7 @@ def _do_info(bz, opt):
     elif opt.component_owners:
         details = bz.getcomponentsdetails(productname)
         for c in sorted(_filter_components(details)):
-            print(to_encoding(u"%s: %s" % (c,
-                details[c]['default_assigned_to'])))
+            print(to_encoding(f"{c}: {details[c]['default_assigned_to']}"))
 
 
 def _convert_to_outputformat(output):
@@ -683,10 +681,9 @@ def _format_output(bz, opt, buglist):
     if opt.output == 'raw':
         buglist = bz.getbugs([b.bug_id for b in buglist])
         for b in buglist:
-            print("Bugzilla %s: " % b.bug_id)
+            print(f"Bugzilla {b.bug_id}: ")
             for attrname in sorted(b.__dict__):
-                print(to_encoding(u"ATTRIBUTE[%s]: %s" %
-                                  (attrname, b.__dict__[attrname])))
+                print(to_encoding(f"ATTRIBUTE[{attrname}]: {b.__dict__[attrname]}"))
             print("\n\n")
         return
 
@@ -697,12 +694,12 @@ def _format_output(bz, opt, buglist):
         (fieldname, rest) = matchobj.groups()
 
         if fieldname == "whiteboard" and rest:
-            fieldname = rest + "_" + fieldname
+            fieldname = f"{rest}_{fieldname}"
 
         if fieldname == "flag" and rest:
             val = b.get_flag_status(rest)
 
-        elif fieldname == "flags" or fieldname == "flags_requestee":
+        elif fieldname in ["flags", "flags_requestee"]:
             tmpstr = []
             for f in getattr(b, "flags", []):
                 requestee = f.get('requestee', "")
@@ -711,10 +708,9 @@ def _format_output(bz, opt, buglist):
                 if fieldname == "flags_requestee":
                     if requestee == "":
                         continue
-                    tmpstr.append("%s" % requestee)
+                    tmpstr.append(f"{requestee}")
                 else:
-                    tmpstr.append("%s%s%s" %
-                            (f['name'], f['status'], requestee))
+                    tmpstr.append(f"{f['name']}{f['status']}{requestee}")
 
             val = ",".join(tmpstr)
 
@@ -770,9 +766,7 @@ def _parse_triset(vallist, checkplus=True, checkminus=True, checkequal=True,
     def make_list(v):
         if not v:
             return []
-        if splitcomma:
-            return v.split(",")
-        return [v]
+        return v.split(",") if splitcomma else [v]
 
     for val in isinstance(vallist, list) and vallist or [vallist]:
         val = val or ""

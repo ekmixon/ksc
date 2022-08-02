@@ -59,8 +59,8 @@ def _default_auth_location(filename):
     old style ~/.bugzillacookies exists, we use that, otherwise we
     use ~/.cache/python-bugzilla/bugzillacookies. Same for bugzillatoken
     """
-    homepath = os.path.expanduser("~/.%s" % filename)
-    xdgpath = os.path.expanduser("~/.cache/python-bugzilla/%s" % filename)
+    homepath = os.path.expanduser(f"~/.{filename}")
+    xdgpath = os.path.expanduser(f"~/.cache/python-bugzilla/{filename}")
     if os.path.exists(xdgpath):
         return xdgpath
     if os.path.exists(homepath):
@@ -86,8 +86,7 @@ def _build_cookiejar(cookiefile):
         cj.load()
         return cj
     except LoadError:
-        raise BugzillaError("cookiefile=%s not in Mozilla format" %
-                            cookiefile)
+        raise BugzillaError(f"cookiefile={cookiefile} not in Mozilla format")
 
 
 _default_configpaths = [
@@ -218,19 +217,17 @@ class Bugzilla(object):
         """
         if '://' not in url:
             log.debug('No scheme given for url, assuming https')
-            url = 'https://' + url
+            url = f'https://{url}'
         if url.count('/') < 3:
             log.debug('No path given for url, assuming /xmlrpc.cgi')
-            url = url + '/xmlrpc.cgi'
+            url = f'{url}/xmlrpc.cgi'
         return url
 
     @staticmethod
     def _listify(val):
         if val is None:
             return val
-        if isinstance(val, list):
-            return val
-        return [val]
+        return val if isinstance(val, list) else [val]
 
 
     def __init__(self, url=-1, user=None, password=None, cookiefile=-1,
@@ -360,7 +357,7 @@ class Bugzilla(object):
         self._add_field_alias('last_change_time', 'delta_ts')
 
     def _get_user_agent(self):
-        return 'python-bugzilla/%s' % __version__
+        return f'python-bugzilla/{__version__}'
     user_agent = property(_get_user_agent)
 
 
@@ -374,9 +371,7 @@ class Bugzilla(object):
         """
         if major < self.bz_ver_major:
             return True
-        if (major == self.bz_ver_major and minor <= self.bz_ver_minor):
-            return True
-        return False
+        return major == self.bz_ver_major and minor <= self.bz_ver_minor
 
     def _add_field_alias(self, *args, **kwargs):
         self._field_aliases.append(_FieldAlias(*args, **kwargs))
@@ -487,8 +482,7 @@ class Bugzilla(object):
 
     def _set_bz_version(self, version):
         try:
-            self.bz_ver_major, self.bz_ver_minor = [
-                int(i) for i in version.split(".")[0:2]]
+            self.bz_ver_major, self.bz_ver_minor = [int(i) for i in version.split(".")[:2]]
         except Exception:
             log.debug("version doesn't match expected format X.Y.Z, "
                     "assuming 5.0", exc_info=True)
@@ -591,7 +585,7 @@ class Bugzilla(object):
             log.info("login successful for user=%s", self.user)
             return ret
         except Fault as e:
-            raise BugzillaError("Login failed: %s" % str(e.faultString))
+            raise BugzillaError(f"Login failed: {str(e.faultString)}")
 
     def interactive_login(self, user=None, password=None, force=False):
         """
@@ -648,7 +642,7 @@ class Bugzilla(object):
             self._proxy.User.get({'ids': []})
             return True
         except Fault as e:
-            if e.faultCode == 505 or e.faultCode == 32000:
+            if e.faultCode in [505, 32000]:
                 return False
             raise e
 
@@ -716,7 +710,7 @@ class Bugzilla(object):
                 raw = self._proxy.Product.get_enterable_products()
 
             if raw is None:
-                raise RuntimeError("Unknown ptype=%s" % ptype)
+                raise RuntimeError(f"Unknown ptype={ptype}")
             ids = raw['ids']
             log.debug("For ptype=%s found ids=%s", ptype, ids)
 
@@ -814,10 +808,7 @@ class Bugzilla(object):
                                   include_fields=["name", "id", "components"])
             proddict = self._lookup_product_in_cache(product)
 
-        ret = {}
-        for compdict in proddict["components"]:
-            ret[compdict["name"]] = compdict
-        return ret
+        return {compdict["name"]: compdict for compdict in proddict["components"]}
 
     def getcomponentdetails(self, product, component, force_refresh=False):
         """
@@ -879,10 +870,7 @@ class Bugzilla(object):
         if update:
             names = {"product": data.pop("product"),
                      "component": data.pop("component")}
-            updates = {}
-            for k in list(data.keys()):
-                updates[k] = data.pop(k)
-
+            updates = {k: data.pop(k) for k in list(data.keys())}
             data["names"] = [names]
             data["updates"] = updates
 
@@ -950,9 +938,8 @@ class Bugzilla(object):
             if exclude_fields:
                 exclude_fields = _convert_fields(exclude_fields)
                 ret["exclude_fields"] = exclude_fields
-        if self._supports_getbug_extra_fields:
-            if extra_fields:
-                ret["extra_fields"] = _convert_fields(extra_fields)
+        if self._supports_getbug_extra_fields and extra_fields:
+            ret["extra_fields"] = _convert_fields(extra_fields)
         return ret
 
     def _get_bug_autorefresh(self):
@@ -998,8 +985,10 @@ class Bugzilla(object):
         if permissive:
             getbugdata["permissive"] = 1
 
-        getbugdata.update(self._process_include_fields(
-            include_fields, exclude_fields, extra_fields))
+        getbugdata |= self._process_include_fields(
+            include_fields, exclude_fields, extra_fields
+        )
+
 
         r = self._proxy.Bug.get(getbugdata)
 
@@ -1472,7 +1461,7 @@ class Bugzilla(object):
         Returns the URI for the given attachment ID.
         """
         att_uri = self.url.replace('xmlrpc.cgi', 'attachment.cgi')
-        att_uri = att_uri + '?id=%s' % attachid
+        att_uri = att_uri + f'?id={attachid}'
         return att_uri
 
     def attachfile(self, idlist, attachfile, description, **kwargs):
@@ -1576,8 +1565,7 @@ class Bugzilla(object):
         # needed though
         ignore = bugid
 
-        flags = {"name": flagname}
-        flags.update(kwargs)
+        flags = {"name": flagname} | kwargs
         update = {'ids': [int(attachid)], 'flags': [flags]}
 
         return self._proxy.Bug.update_attachment(update)

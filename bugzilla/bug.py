@@ -166,10 +166,7 @@ class Bug(object):
     ##################
 
     def __getstate__(self):
-        ret = {}
-        for key in self._bug_fields:
-            ret[key] = self.__dict__[key]
-        return ret
+        return {key: self.__dict__[key] for key in self._bug_fields}
 
     def __setstate__(self, vals):
         self._bug_fields = []
@@ -310,20 +307,14 @@ class Bug(object):
         Older RHBugzilla returned a lot more info here, but it was
         non-upstream and is now gone.
         """
-        for t in self.flags:
-            if t['name'] == name:
-                return t
-        return None
+        return next((t for t in self.flags if t['name'] == name), None)
 
     def get_flags(self, name):
         """
         Return flag value information for a specific flag
         """
         ft = self.get_flag_type(name)
-        if not ft:
-            return None
-
-        return [ft]
+        return [ft] if ft else None
 
     def get_flag_status(self, name):
         """
@@ -352,9 +343,7 @@ class Bug(object):
         :param flags: Dictionary of the form {"flagname": "status"}, example
             {"needinfo": "?", "devel_ack": "+"}
         """
-        flaglist = []
-        for key, value in flags.items():
-            flaglist.append({"name": key, "status": value})
+        flaglist = [{"name": key, "status": value} for key, value in flags.items()]
         return self.bugzilla.update_bugs([self.bug_id],
             self.bugzilla.build_update(flags=flaglist))
 
@@ -403,14 +392,11 @@ class User(object):
         self.__email = kwargs.get('email', self.__name)
         self.__can_login = kwargs.get('can_login', False)
 
-        self.real_name = kwargs.get('real_name', None)
+        self.real_name = kwargs.get('real_name')
         self.password = None
 
         self.groups = kwargs.get('groups', {})
-        self.groupnames = []
-        for g in self.groups:
-            if "name" in g:
-                self.groupnames.append(g["name"])
+        self.groupnames = [g["name"] for g in self.groups if "name" in g]
         self.groupnames.sort()
 
 

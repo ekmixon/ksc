@@ -68,10 +68,7 @@ class Ksc(object):
         self.arch = None
         self.vermagic = {}
         self.import_ns = {}
-        if mock:
-            self.releasename = '7.0'
-        else:
-            self.releasename = None
+        self.releasename = '7.0' if mock else None
 
     def clean(self):
         self.all_symbols_used = {}
@@ -124,10 +121,11 @@ class Ksc(object):
                           dest="justification_from", metavar="JUSTIFICATION",
                           help="read justification from previous ksc-result")
 
-        if not self.mock:  # pragma: no cover
-            (options, args) = parser.parse_args(sys.argv[1:])
-        else:  # pragma: no cover
-            (options, args) = parser.parse_args(mock_options)
+        (options, args) = (
+            parser.parse_args(mock_options)
+            if self.mock
+            else parser.parse_args(sys.argv[1:])
+        )
 
         if options.VERSION:
             print(KSCVERSION)
@@ -144,12 +142,11 @@ class Ksc(object):
             if not self.valid_release_version(self.releasename):
                 sys.exit(1)
 
-        if options.release:
-            if not self.valid_release_version(options.release):
-                sys.exit(1)
+        if options.release and not self.valid_release_version(options.release):
+            sys.exit(1)
 
         if options.releasename and options.release and \
-                options.release != options.releasename:
+                    options.release != options.releasename:
             print("Release and release name do not match.")
             sys.exit(1)
 
@@ -227,8 +224,7 @@ class Ksc(object):
 
             for file_contents in re.split("({[^}]*})", fd.read()):
 
-                filename_match = self.SECTION_KO_RE.match(file_contents)
-                if filename_match:
+                if filename_match := self.SECTION_KO_RE.match(file_contents):
                     filename_section = filename_match.group('ko_file')
 
                 # Attempt to read new-style justifications, provided they are
@@ -237,11 +233,11 @@ class Ksc(object):
                 match = self.LISTS_RE.match(file_contents)
                 if not match:
                     match = self.LISTS_RE_DEPRECATED.match(file_contents)
-                    if not match:
-                        continue
+                if not match:
+                    continue
 
                 for symbol, justification in \
-                        self.JUSTIFICATION_RE.findall(file_contents):
+                            self.JUSTIFICATION_RE.findall(file_contents):
                     symbol = symbol.strip()
                     justification = justification.strip()
 
@@ -255,19 +251,19 @@ class Ksc(object):
                         self.justifications[filename_section] = {}
 
                     self.justifications[filename_section][symbol] = \
-                            justification
+                                justification
 
                     if symbol not in self.justified_symbols:
                         self.justified_symbols[symbol] = \
-                                os.path.basename(filename_section)
+                                    os.path.basename(filename_section)
 
     def valid_release_version(self, release):
         rels = release.split(".")
         if len(rels) != 2:
-            print("Invalid release: %s" % release)
+            print(f"Invalid release: {release}")
             return False
         if not rels[0].isdigit() or int(rels[0]) <= 5:
-            print("Invalid release: %s" % release)
+            print(f"Invalid release: {release}")
             return False
         return True
 
@@ -307,7 +303,7 @@ class Ksc(object):
             print("Unable to determine system's release name. Please specify.")
 
         else:
-            query = "File bug against RHEL release %s?" % self.releasename
+            query = f"File bug against RHEL release {self.releasename}?"
             query += "\n"
             query += "y/N: "
 
@@ -320,17 +316,14 @@ class Ksc(object):
         # Either system-determine RHEL release is not what user wishes to file
         # against, or ksc couldn't determine the release; query user to specify
         if use_sys_release.lower() == 'n' or not self.releasename:
-            release_name = query_user(
+            if release_name := query_user(
                 "Please enter valid RHEL release to file bug against: ",
-                is_valid=self.valid_release_version
-            )
-
-            if not release_name:
+                is_valid=self.valid_release_version,
+            ):
+                print(f"Using RHEL {release_name} release.")
+            else:
                 print("Unable to determine a valid RHEL release. Qutting.")
                 sys.exit(1)
-
-            else:
-                print("Using RHEL %s release." % release_name)
 
     def submit(self, filename, path):
         """
@@ -347,7 +340,7 @@ class Ksc(object):
                 module_name = self.get_module_name(line)
 
         except IOError as err:
-            print("Unable to read previous result: {}".format(err))
+            print(f"Unable to read previous result: {err}")
             sys.exit(1)
 
         if not self.mock:  # Ask for user permission
@@ -374,17 +367,16 @@ class Ksc(object):
         print('the line below:')
 
         print(("\n%s\n" % self.JUSTIFICATION_PLACEHOLDER) + reset)
-        print(bold + 'Press ENTER for next screen.' + reset)
+        print(f'{bold}Press ENTER for next screen.{reset}')
         try:
             input()
         except EOFError:
             print("Warning. Running in a non-interactive mode.")
 
-        editor = os.getenv('EDITOR')
-        if editor:
-            os.system(editor + ' ' + filename)
+        if editor := os.getenv('EDITOR'):
+            os.system(f'{editor} {filename}')
         else:
-            os.system('vi ' + filename)
+            os.system(f'vi {filename}')
         return True
 
     def save_result(self):
@@ -395,7 +387,7 @@ class Ksc(object):
         if os.path.isfile(output_filename):
 
             overwrite_result_query = "ksc-result.txt already exists. " \
-                    "Overwrite? [y/N]: "
+                        "Overwrite? [y/N]: "
             overwrite = query_user_bool(overwrite_result_query)
 
             if overwrite.lower() != 'y':
@@ -414,10 +406,7 @@ class Ksc(object):
                 f.write(command)
                 for ko_file in self.all_symbols_used:
                     ns = list(filter(lambda x: x, self.import_ns[ko_file]))
-                    if ns:
-                        ns = "@ns:" + "@ns:".join(ns)
-                    else:
-                        ns = ""
+                    ns = "@ns:" + "@ns:".join(ns) if ns else ""
                     f.write("\n{%s@%s%s}\n\n" % (
                         os.path.basename(ko_file),
                         self.vermagic[ko_file].strip(),
@@ -426,10 +415,10 @@ class Ksc(object):
                     self.write_result(f, ko_file)
 
             if not self.mock:
-                print("A copy of the report is saved in %s" % output_filename)
+                print(f"A copy of the report is saved in {output_filename}")
 
         except Exception as e:
-            print("Error in saving the result file at %s" % output_filename)
+            print(f"Error in saving the result file at {output_filename}")
             print(e)
             sys.exit(1)
 
@@ -438,29 +427,29 @@ class Ksc(object):
         Print the result (score)
         """
 
-        print("Processing %s" % kmod_path)
+        print(f"Processing {kmod_path}")
 
         for name in self.nonstable_symbols_used[kmod_path]:
             if name not in self.total:
                 print("WARNING: External symbol in %s does not "
                       "exist in current kernel: %s" \
-                      % (os.path.basename(kmod_path),name))
+                          % (os.path.basename(kmod_path),name))
 
         total_len = len(self.all_symbols_used[kmod_path])
         non_stable = len(self.nonstable_symbols_used[kmod_path])
         stable_len = float(len(self.stable_symbols[kmod_path]))
 
         if total_len == 0:  # pragma: no cover
-            print("No kernel symbol usage found in %s." % kmod_path)
+            print(f"No kernel symbol usage found in {kmod_path}.")
             return
 
-        score = (stable_len / total_len) * 100
-
         if not self.mock:
-            print("Checking against architecture %s" % self.arch)
+            print(f"Checking against architecture {self.arch}")
             print("Total symbol usage: %s\t"
                   "Total Non stable list symbol usage: %s"
                   % (total_len, non_stable))
+            score = (stable_len / total_len) * 100
+
             print("Score: %0.2f%%\n" % score)
 
     def find_arch(self, kmod_list):
@@ -487,14 +476,18 @@ class Ksc(object):
                     else "")
                 sys.exit(1)
             except KeyError:
-                print("%s: Invalid architecture. (only %s are supported)"
-                    % (kmod_path, ', '.join(sorted(rset.values()))))
+                print(
+                    f"{kmod_path}: Invalid architecture. (only {', '.join(sorted(rset.values()))} are supported)"
+                )
+
                 sys.exit(1)
 
         arch = list(set(arch))
         if len(arch) > 1:
-            print("Object files for multiple architectures were provided (%s)."
-                % ', '.join(sorted(arch)))
+            print(
+                f"Object files for multiple architectures were provided ({', '.join(sorted(arch))})."
+            )
+
             sys.exit(1)
 
         self.arch = arch[0]
@@ -616,14 +609,13 @@ class Ksc(object):
                 return None
             commands = match.group("cmd").split()
 
-            # Ignore undefined options in parser instead of throwing error
             class IOptParse(OptionParser):
                 def error(self, msg):
                     pass
 
             parser = IOptParse()
             parser.add_option("-k", "--ko")
-            opts, _ = parser.parse_args(commands[0:])
+            opts, _ = parser.parse_args(commands[:])
             return opts.ko
         except Exception:
             return None

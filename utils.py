@@ -46,11 +46,11 @@ def query_user(query, max_tries=10, is_valid=lambda x: len(x) > 0):
     response = ""
     while not is_valid(response):
         if tries_left < max_tries:
-            if response == "":
-                print("Empty response received. Please try again.")
-            else:
+            if response:
                 print("Option `%s' is invalid. Please try again." % response)
 
+            else:
+                print("Empty response received. Please try again.")
         if tries_left == 0:
             print("Reached maximum number of invalid responses.")
             return ""
@@ -97,21 +97,17 @@ def read_list(arch, kabipath, verbose=False):
     Reads a stablelist file and returns the symbols
     """
     result = []
-    fpath = os.path.join(WHPATH, kabipath, "kabi_stablelist_%s" % arch)
+    fpath = os.path.join(WHPATH, kabipath, f"kabi_stablelist_{arch}")
     if not os.path.isfile(fpath):
-        fpath = os.path.join(WHPATH, kabipath, "kabi_whitelist_%s" % arch)
+        fpath = os.path.join(WHPATH, kabipath, f"kabi_whitelist_{arch}")
     if not os.path.isfile(fpath):  # pragma: no cover
         print("File not found:", fpath)
         return [], False
     try:
         if verbose:  # pragma: no cover
-            print("Reading %s" % fpath)
-        fptr = open(fpath)
-        for line in fptr.readlines():
-            if line.startswith("["):
-                continue
-            result.append(line.strip("\n\t"))
-        fptr.close()
+            print(f"Reading {fpath}")
+        with open(fpath) as fptr:
+            result.extend(line.strip("\n\t") for line in fptr if not line.startswith("["))
     except IOError as err:  # pragma: no cover
         print(err)
         print("stablelist missing")
@@ -133,10 +129,7 @@ def read_total_list(symvers=None):
     result = []
     try:
         with open(symvers, "r") as fptr:
-            for line in fptr.readlines():
-                if line.startswith("["):
-                    continue  # pragma: no cover
-                result.append(line.split()[1])
+            result.extend(line.split()[1] for line in fptr if not line.startswith("["))
     except IOError as err:  # pragma: no cover
         print(err)
         print("Missing all symbol list")
@@ -164,15 +157,12 @@ def getconfig(path='/etc/ksc.conf', mock=False):
     """
     Returns the bugzilla config
     """
-    result = {}
-    result['partner'] = ''
-
+    result = {'partner': ''}
     if not os.path.isfile(path):
         path = '/etc/ksc.conf'
     try:
-        fptr = open(path)
-        lines = fptr.readlines()
-        fptr.close()
+        with open(path) as fptr:
+            lines = fptr.readlines()
         for line in lines:
             if line.startswith("user="):
                 result["user"] = line[5:-1]
@@ -197,7 +187,7 @@ def getconfig(path='/etc/ksc.conf', mock=False):
             if not result['group'] or result['group'] == 'partner-group':
                 result['group'] = input("Partner group: ")
             if "api_key" not in result or not result['api_key'] or result['api_key'] == 'api_key':
-                print('Current Bugzilla user: %s' % result['user'])
+                print(f"Current Bugzilla user: {result['user']}")
                 result['password'] = getpass.getpass('Please enter password: ')
             else:
                 print('Using API Key for authentication')
@@ -208,7 +198,7 @@ def getconfig(path='/etc/ksc.conf', mock=False):
             print("Bug not submitted")
             sys.exit(1)
     except Exception as err:
-        print("Error reading %s" % path)
+        print(f"Error reading {path}")
         sys.exit(1)
     return result
 
@@ -242,7 +232,7 @@ def createbug(filename, arch, mock=False, path='/etc/ksc.conf',
     groups = []
 
     if module:
-        bughash["summary"] += " ({})".format(str(module))
+        bughash["summary"] += f" ({str(module)})"
 
     # We change the path if only it is mock
     if mock:
@@ -258,9 +248,8 @@ def createbug(filename, arch, mock=False, path='/etc/ksc.conf',
 
     if not conf:
         return
-    if 'group' in conf:
-        if conf['group'] != 'partner-group':
-            groups.append(conf['group'])
+    if 'group' in conf and conf['group'] != 'partner-group':
+        groups.append(conf['group'])
 
     groups = list(filter(lambda x: len(x) > 0, groups))
     if not groups:
@@ -292,7 +281,7 @@ def createbug(filename, arch, mock=False, path='/etc/ksc.conf',
                 password=conf["password"]
             )
     except BugzillaError as err:
-        print("Bug not submitted. %s" % err)
+        print(f"Bug not submitted. {err}")
         if not mock:
             sys.exit(1)
 
@@ -313,7 +302,7 @@ def createbug(filename, arch, mock=False, path='/etc/ksc.conf',
             bughash["sub_component"] = 'kabi-whitelists'
             trycreatebug(filename, mock, bughash, conf, bz)
         except Exception as err:  # pragma: no cover
-            print ("Could not create bug. %s" % err)
+            print(f"Could not create bug. {err}")
             if not mock:
                 sys.exit(1)
 
@@ -341,13 +330,10 @@ def trycreatebug(filename, mock, bughash, conf, bz):
     bugid = bug.id
 
     if not mock:  # pragma: no cover
-        print("Bug URL %s/show_bug.cgi?id=%s" % \
-              (conf['server'][:-11], bugid))
+        print(f"Bug URL {conf['server'][:-11]}/show_bug.cgi?id={bugid}")
         print("Attaching the report")
 
-    dhash = {}
-    dhash["filename"] = "ksc-result.txt"
-    dhash["contenttype"] = "text/plain"
+    dhash = {"filename": "ksc-result.txt", "contenttype": "text/plain"}
     desc = "kABI symbol usage."
 
     for _ in range(3):
@@ -358,7 +344,7 @@ def trycreatebug(filename, mock, bughash, conf, bz):
             if not attachment_id:
                 time.sleep(1)
             else:
-                print("Attached successfully as %s on bug %s" % (attachment_id, bugid))
+                print(f"Attached successfully as {attachment_id} on bug {bugid}")
                 break
     else:
         print("Failed to attach symbol usage result")
